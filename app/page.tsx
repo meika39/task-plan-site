@@ -36,6 +36,12 @@ type TimelineItem = {
   endMin: number;
 };
 
+// AI分解ステップ
+type MicroStep = {
+  text: string;
+  minutes: number;
+};
+
 // --- Constants ---
 const INITIAL_BASE_SCHEDULES: BaseSchedule[] = [
   { id: "base_sleep_1", title: "睡眠", startTime: "00:00", endTime: "07:00" },
@@ -100,6 +106,13 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<"month" | "week" | "day">("week");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   
+  // AI分解・フォーカスモード States
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [focusSteps, setFocusSteps] = useState<MicroStep[]>([]);
+  const [focusStepIndex, setFocusStepIndex] = useState(0);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [taskStepsCache, setTaskStepsCache] = useState<Record<string, MicroStep[]>>({});
+
   // Form States - Base
   const [baseTitle, setBaseTitle] = useState("");
   const [baseStart, setBaseStart] = useState("09:00");
@@ -192,6 +205,49 @@ export default function Home() {
 
   const toggleDayOfWeek = (day: number) => {
     setFixedDaysOfWeek(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+  };
+
+  // --- AI タスク分解 ---
+  const handleBreakdown = async (task: Task) => {
+    // キャッシュがあればそのまま表示
+    if (taskStepsCache[task.id]) {
+      setFocusSteps(taskStepsCache[task.id]);
+      setFocusStepIndex(0);
+      setFocusTaskId(task.id);
+      return;
+    }
+    setBreakdownLoading(true);
+    setFocusTaskId(task.id);
+    setFocusStepIndex(0);
+    try {
+      const res = await fetch("/api/breakdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskTitle: task.title, durationMinutes: task.durationMinutes }),
+      });
+      if (!res.ok) throw new Error("API error");
+      const data = await res.json();
+      const steps: MicroStep[] = (data.steps ?? []).map((s: { text: string; minutes: number }) => ({
+        text: s.text,
+        minutes: s.minutes,
+      }));
+      setTaskStepsCache(prev => ({ ...prev, [task.id]: steps }));
+      setFocusSteps(steps);
+    } catch {
+      alert("タスクの分解に失敗しました。もう一度お試しください。");
+      setFocusTaskId(null);
+    } finally {
+      setBreakdownLoading(false);
+    }
+  };
+
+  const handleFocusNext = () => setFocusStepIndex(prev => Math.min(prev + 1, focusSteps.length - 1));
+  const handleFocusPrev = () => setFocusStepIndex(prev => Math.max(prev - 1, 0));
+  const handleFocusClose = () => { setFocusTaskId(null); setFocusSteps([]); setFocusStepIndex(0); };
+  const handleReBreakdown = (task: Task) => {
+    setTaskStepsCache(prev => { const n = { ...prev }; delete n[task.id]; return n; });
+    setFocusTaskId(null);
+    setTimeout(() => handleBreakdown(task), 100);
   };
 
   // --- Auto Scheduler Engine ---
@@ -485,8 +541,136 @@ export default function Home() {
     );
   };
 
+  // 今やること フォーカスモード オーバーレイ
+  const focusTask = tasks.find(t => t.id === focusTaskId);
+  const FocusOverlay = () => {
+    if (!focusTaskId) return null;
+    const currentStep = focusSteps[focusStepIndex];
+    const isLast = focusStepIndex === focusSteps.length - 1;
+    const progress = focusSteps.length > 0 ? ((focusStepIndex) / focusSteps.length) * 100 : 0;
+
+    return (
+      <div className="fixed inset-0 z-50 bg-[#F0FDF4] flex flex-col items-center justify-center p-6 overflow-y-auto">
+        {/* ヘッダー */}
+        <div className="w-full max-w-md flex justify-between items-start mb-8">
+          <div>
+            <span className="inline-block text-xs font-black text-green-700 bg-green-200 px-3 py-1 rounded-full border-2 border-green-700">
+              🎯 今やること
+            </span>
+            <p className="text-sm font-bold text-slate-500 mt-2 max-w-[200px] truncate">
+              {focusTask?.title}
+            </p>
+          </div>
+          <button
+            onClick={handleFocusClose}
+            className="w-10 h-10 bg-white border-2 border-slate-800 rounded-full font-black hover:bg-slate-100 shadow-[2px_2px_0px_rgba(30,41,59,1)] shrink-0"
+          >✕</button>
+        </div>
+
+        {breakdownLoading ? (
+          /* ローディング */
+          <div className="flex flex-col items-center gap-6">
+            <div className="relative w-20 h-20">
+              <div className="absolute inset-0 border-4 border-green-200 rounded-full"></div>
+              <div className="absolute inset-0 border-4 border-t-green-500 rounded-full animate-spin"></div>
+            </div>
+            <div className="text-center">
+              <p className="font-black text-slate-800 text-lg">AIがタスクを分解中...</p>
+              <p className="text-sm font-bold text-slate-500 mt-1">「{focusTask?.title}」を小さなステップに！</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* プログレスバー */}
+            <div className="w-full max-w-md mb-6">
+              <div className="flex justify-between text-sm font-black text-slate-500 mb-2">
+                <span>ステップ {focusStepIndex + 1} / {focusSteps.length}</span>
+                {currentStep && <span>⏱ 約{currentStep.minutes}分</span>}
+              </div>
+              <div className="w-full h-3 bg-slate-200 rounded-full border-2 border-slate-800 overflow-hidden">
+                <div
+                  className="h-full bg-green-400 rounded-full transition-all duration-500"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+            </div>
+
+            {/* メインステップ表示 */}
+            <div className="w-full max-w-md bg-white border-4 border-slate-800 rounded-3xl p-10 shadow-[8px_8px_0px_rgba(30,41,59,1)] text-center mb-8">
+              <p className="text-3xl md:text-4xl font-black text-slate-900 leading-tight">
+                {currentStep?.text ?? "完了！"}
+              </p>
+            </div>
+
+            {/* ステップ一覧（小さく） */}
+            <div className="w-full max-w-md mb-6 space-y-1">
+              {focusSteps.map((s, i) => (
+                <div
+                  key={i}
+                  onClick={() => setFocusStepIndex(i)}
+                  className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-colors ${
+                    i === focusStepIndex
+                      ? "bg-green-100 border-2 border-green-600"
+                      : i < focusStepIndex
+                      ? "opacity-40 bg-slate-50"
+                      : "bg-white border-2 border-slate-200 hover:border-slate-400"
+                  }`}
+                >
+                  <span className={`w-6 h-6 rounded-full border-2 border-slate-800 flex items-center justify-center text-xs font-black shrink-0 ${
+                    i < focusStepIndex ? "bg-green-400 text-white" : i === focusStepIndex ? "bg-green-200" : "bg-white"
+                  }`}>
+                    {i < focusStepIndex ? "✓" : i + 1}
+                  </span>
+                  <span className="text-xs font-bold text-slate-700 truncate">{s.text}</span>
+                  <span className="text-[10px] font-black text-slate-400 shrink-0">{s.minutes}分</span>
+                </div>
+              ))}
+            </div>
+
+            {/* アクションボタン */}
+            <div className="w-full max-w-md flex flex-col gap-3">
+              {!isLast ? (
+                <button
+                  onClick={handleFocusNext}
+                  className="w-full py-5 bg-green-400 text-white font-black text-xl rounded-2xl border-2 border-slate-800 hover:bg-green-500 transition-all shadow-[4px_4px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none"
+                >
+                  ✅ 完了！次へ →
+                </button>
+              ) : (
+                <button
+                  onClick={handleFocusClose}
+                  className="w-full py-5 bg-yellow-400 text-slate-900 font-black text-xl rounded-2xl border-2 border-slate-800 hover:bg-yellow-500 transition-all shadow-[4px_4px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none"
+                >
+                  🎉 全ステップ完了！おつかれさま
+                </button>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleFocusPrev}
+                  disabled={focusStepIndex === 0}
+                  className="flex-1 py-3 bg-white font-black text-sm rounded-2xl border-2 border-slate-800 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed shadow-[2px_2px_0px_rgba(30,41,59,1)]"
+                >
+                  ← 戻る
+                </button>
+                {focusTask && (
+                  <button
+                    onClick={() => handleReBreakdown(focusTask)}
+                    className="flex-1 py-3 bg-white font-black text-sm rounded-2xl border-2 border-slate-800 hover:bg-slate-100 shadow-[2px_2px_0px_rgba(30,41,59,1)]"
+                  >
+                    🔄 再分解
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-[#FFFDF5] text-slate-800 font-sans selection:bg-yellow-200">
+      <FocusOverlay />
       
       {/* Sidebar */}
       <aside className="w-full md:w-64 lg:w-72 border-b-2 md:border-b-0 md:border-r-2 border-slate-800 bg-white p-6 flex flex-col shrink-0 sticky top-0 h-auto md:h-screen overflow-y-auto z-40">
@@ -612,12 +796,21 @@ export default function Home() {
 
                    <div className="flex-1 overflow-y-auto space-y-2 max-h-[400px] pr-2">
                      {tasks.map(t => (
-                        <div key={t.id} className="bg-white p-3 rounded-2xl border-2 border-slate-800 flex justify-between items-center group">
-                           <div>
-                              <p className="font-black text-sm">{t.title}</p>
-                              <p className="text-[10px] font-bold text-slate-500">{t.durationMinutes}分 / 締切: {t.deadlineDate}</p>
+                        <div key={t.id} className="bg-white p-3 rounded-2xl border-2 border-slate-800 group">
+                           <div className="flex justify-between items-start mb-2">
+                             <div className="flex-1 min-w-0">
+                               <p className="font-black text-sm truncate">{t.title}</p>
+                               <p className="text-[10px] font-bold text-slate-500">{t.durationMinutes}分 / 締切: {t.deadlineDate}</p>
+                             </div>
+                             <button onClick={()=>deleteItem('task', t.id)} className="w-7 h-7 bg-rose-100 text-rose-600 rounded-full font-black border-2 border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0 text-xs">×</button>
                            </div>
-                           <button onClick={()=>deleteItem('task', t.id)} className="w-8 h-8 bg-rose-100 text-rose-600 rounded-full font-black border-2 border-slate-800 opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+                           {/* 🎯 AI分解ボタン */}
+                           <button
+                             onClick={() => handleBreakdown(t)}
+                             className="w-full py-1.5 bg-green-400 text-white font-black text-xs rounded-xl border-2 border-slate-800 hover:bg-green-500 transition-colors shadow-[2px_2px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none flex items-center justify-center gap-1"
+                           >
+                             🎯 今やることに分解する
+                           </button>
                         </div>
                      ))}
                    </div>
