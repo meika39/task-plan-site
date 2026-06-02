@@ -106,6 +106,9 @@ export default function Home() {
   const [currentView, setCurrentView] = useState<"month" | "week" | "day">("week");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   
+  // モバイルタブ
+  const [activeTab, setActiveTab] = useState<"focus" | "tasks" | "schedule">("focus");
+
   // AI分解・フォーカスモード States
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [focusSteps, setFocusSteps] = useState<MicroStep[]>([]);
@@ -669,11 +672,184 @@ export default function Home() {
   };
 
   return (
-    <div className="flex flex-col md:flex-row min-h-screen bg-[#FFFDF5] text-slate-800 font-sans selection:bg-yellow-200">
+    <div className="min-h-screen bg-[#FFFDF5] text-slate-800 font-sans selection:bg-yellow-200">
       <FocusOverlay />
-      
-      {/* Sidebar */}
-      <aside className="w-full md:w-64 lg:w-72 border-b-2 md:border-b-0 md:border-r-2 border-slate-800 bg-white p-6 flex flex-col shrink-0 sticky top-0 h-auto md:h-screen overflow-y-auto z-40">
+
+      {/* ════════════ 📱 モバイル (md未満) ════════════ */}
+      <div className="flex flex-col min-h-screen md:hidden">
+
+        {/* ── ヘッダー ── */}
+        <header className="sticky top-0 z-30 bg-white border-b-2 border-slate-800 px-4 py-3 flex items-center justify-between shadow-[0_2px_0px_rgba(30,41,59,1)]">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-yellow-400 rounded-full border-2 border-slate-800 flex items-center justify-center text-sm shadow-[2px_2px_0px_rgba(30,41,59,1)]">⭐</div>
+            <h1 className="text-xl font-black tracking-tight">PlanDear</h1>
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-black text-slate-500">{todayStr}</p>
+            <p className="text-xs font-bold text-slate-400">{DAYS_OF_WEEK[new Date().getDay()]}曜日</p>
+          </div>
+        </header>
+
+        {/* ── タブコンテンツ ── */}
+        <div className="flex-1 overflow-y-auto pb-24">
+
+          {/* 🎯 今やること */}
+          {activeTab === "focus" && (
+            <div className="p-4 space-y-4">
+              <div className="bg-yellow-300 border-2 border-slate-800 rounded-3xl p-5 shadow-[4px_4px_0px_rgba(30,41,59,1)]">
+                <h2 className="text-2xl font-black">今日も一歩ずつ👣</h2>
+                <p className="text-sm font-bold text-slate-700 mt-1">タスクを小さく分解して、まず1つだけ始めよう</p>
+                {memo && (
+                  <div className="mt-3 bg-white/60 rounded-xl px-3 py-2 border border-yellow-400">
+                    <p className="text-xs font-bold text-slate-700">📌 {memo}</p>
+                  </div>
+                )}
+              </div>
+              {tasks.length === 0 ? (
+                <div className="bg-white border-2 border-dashed border-slate-300 rounded-3xl p-8 text-center">
+                  <p className="text-4xl mb-3">📭</p>
+                  <p className="font-black text-slate-600">タスクがまだありません</p>
+                  <p className="text-sm font-bold text-slate-400 mt-1">「タスク」タブから追加しよう！</p>
+                  <button onClick={() => setActiveTab("tasks")} className="mt-4 px-6 py-3 bg-orange-400 text-white font-black rounded-2xl border-2 border-slate-800 shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none">
+                    タスクを追加する ＋
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h3 className="font-black text-sm text-slate-500 flex items-center gap-1">📋 タスク一覧（{tasks.length}件）</h3>
+                  {tasks.map(t => (
+                    <div key={t.id} className="bg-white border-2 border-slate-800 rounded-3xl p-4 shadow-[4px_4px_0px_rgba(30,41,59,1)]">
+                      <div className="flex justify-between items-start mb-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-black text-base truncate">{t.title}</p>
+                          <p className="text-xs font-bold text-slate-500 mt-0.5">⏱ {t.durationMinutes}分 ・ 🚨 {t.deadlineDate}</p>
+                        </div>
+                        <button onClick={() => deleteItem('task', t.id)} className="w-7 h-7 bg-rose-100 text-rose-600 rounded-full border-2 border-slate-300 text-xs font-black ml-2 shrink-0">×</button>
+                      </div>
+                      <button
+                        onClick={() => handleBreakdown(t)}
+                        className="w-full py-3 bg-green-400 text-white font-black text-sm rounded-2xl border-2 border-slate-800 shadow-[3px_3px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none flex items-center justify-center gap-2"
+                      >
+                        🎯 今やることに分解する
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="bg-white border-2 border-slate-800 rounded-3xl p-4 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                <label className="block text-sm font-black mb-2 text-slate-700">📌 ひとことメモ</label>
+                <textarea value={memo} onChange={e => setMemo(e.target.value)} placeholder="今日の目標は？"
+                  className="w-full h-20 p-3 bg-yellow-50 border-2 border-slate-200 rounded-2xl focus:outline-none focus:border-yellow-400 resize-none text-sm font-bold" />
+              </div>
+            </div>
+          )}
+
+          {/* ➕ タスク */}
+          {activeTab === "tasks" && (
+            <div className="p-4 space-y-4">
+              <div className="bg-orange-50 border-2 border-slate-800 rounded-3xl p-5 shadow-[4px_4px_0px_rgba(30,41,59,1)] space-y-3">
+                <h3 className="font-black text-lg">📝 タスクを追加</h3>
+                <input
+                  className="w-full p-4 bg-white border-2 border-slate-800 rounded-2xl font-bold text-base focus:outline-none focus:border-orange-400 shadow-[2px_2px_0px_rgba(30,41,59,1)]"
+                  placeholder="何をする？（例：レポートを書く）"
+                  value={taskTitle} onChange={e => setTaskTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleAddTask()}
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white border-2 border-slate-800 rounded-2xl p-3 flex items-center gap-2 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                    <span>⏱</span>
+                    <input type="number" value={taskDuration} onChange={e => setTaskDuration(e.target.value)} className="flex-1 font-bold text-base focus:outline-none w-0 min-w-0" />
+                    <span className="text-sm font-black text-slate-500 shrink-0">分</span>
+                  </div>
+                  <div className="bg-white border-2 border-slate-800 rounded-2xl p-3 flex items-center gap-2 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                    <span>🚨</span>
+                    <input type="date" value={taskDeadline} onChange={e => setTaskDeadline(e.target.value)} className="flex-1 text-xs font-bold focus:outline-none w-0 min-w-0" />
+                  </div>
+                </div>
+                <button onClick={handleAddTask} className="w-full py-4 bg-orange-400 text-white font-black text-lg rounded-2xl border-2 border-slate-800 shadow-[4px_4px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none">
+                  追加する ＋
+                </button>
+              </div>
+              {deadlineWarnings.length > 0 && (
+                <div className="bg-rose-100 border-2 border-slate-800 rounded-2xl p-4">
+                  <p className="font-black text-rose-600 text-sm mb-1">🚨 締切アラート</p>
+                  {deadlineWarnings.map((w, i) => <p key={i} className="text-xs font-bold">{w}</p>)}
+                </div>
+              )}
+              <div className="space-y-2">
+                <h3 className="font-black text-sm text-slate-500">登録済みタスク（{tasks.length}件）</h3>
+                {tasks.length === 0 && <p className="text-sm font-bold text-slate-400 text-center py-6">まだタスクがありません</p>}
+                {tasks.map(t => (
+                  <div key={t.id} className="bg-white border-2 border-slate-800 rounded-2xl p-4 flex items-center gap-3 shadow-[2px_2px_0px_rgba(30,41,59,1)]">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black text-sm truncate">{t.title}</p>
+                      <p className="text-[10px] font-bold text-slate-500">{t.durationMinutes}分 / 締切: {t.deadlineDate}</p>
+                    </div>
+                    <button onClick={() => handleBreakdown(t)} className="px-3 py-2 bg-green-100 text-green-700 font-black text-xs rounded-xl border-2 border-green-600 shrink-0 active:bg-green-200">🎯 分解</button>
+                    <button onClick={() => deleteItem('task', t.id)} className="w-8 h-8 bg-rose-100 text-rose-500 rounded-full border-2 border-slate-300 font-black text-sm shrink-0">×</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 📅 予定 */}
+          {activeTab === "schedule" && (
+            <div className="p-4 space-y-4">
+              <div className="flex items-center justify-between bg-green-100 border-2 border-slate-800 rounded-2xl p-3 shadow-[4px_4px_0px_rgba(30,41,59,1)]">
+                <button onClick={() => setSelectedDate(addDays(selectedDate, -1))} className="w-10 h-10 bg-white border-2 border-slate-800 rounded-full font-black shadow-[2px_2px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none">◀</button>
+                <div className="text-center">
+                  <p className="font-black">{formatDate(selectedDate) === todayStr ? "⭐ 今日" : formatDate(selectedDate)}</p>
+                  <p className="text-xs font-bold text-slate-500">{DAYS_OF_WEEK[selectedDate.getDay()]}曜日</p>
+                </div>
+                <button onClick={() => setSelectedDate(addDays(selectedDate, 1))} className="w-10 h-10 bg-white border-2 border-slate-800 rounded-full font-black shadow-[2px_2px_0px_rgba(30,41,59,1)] active:translate-y-0.5 active:shadow-none">▶</button>
+              </div>
+              <div className="space-y-2">
+                {(schedulesByDate[formatDate(selectedDate)] || []).filter(i => i.type !== "base").map(item => (
+                  <div key={item.id} className={`p-4 rounded-2xl border-2 border-slate-800 shadow-[2px_2px_0px_rgba(30,41,59,1)] ${item.type === 'fixed' ? 'bg-sky-100' : item.type === 'deadline' ? 'bg-rose-100' : 'bg-orange-100'}`}>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full border border-slate-800 bg-white">{item.type === 'fixed' ? '予定📌' : item.type === 'task' ? 'タスク📝' : '締切🚨'}</span>
+                      {item.type !== 'deadline' && <span className="text-xs font-mono font-black text-slate-600">{item.startTime}–{item.endTime}</span>}
+                    </div>
+                    <p className="font-black text-base mt-1">{item.title}</p>
+                  </div>
+                ))}
+                {(schedulesByDate[formatDate(selectedDate)] || []).filter(i => i.type !== "base").length === 0 && (
+                  <p className="text-center font-bold text-slate-400 py-8">この日の予定はありません</p>
+                )}
+              </div>
+              {unassignedTasks.length > 0 && (
+                <div className="bg-amber-50 border-2 border-slate-800 rounded-2xl p-4">
+                  <p className="font-black text-amber-700 text-sm mb-2">⚠️ 配置できていないタスク</p>
+                  {unassignedTasks.map(t => <p key={t.id} className="text-xs font-bold text-slate-600">• {t.title}（残{t.durationMinutes}分）</p>)}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── ボトムタブバー ── */}
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t-2 border-slate-800 grid grid-cols-3">
+          {([
+            { id: "focus",    icon: "🎯", label: "今やること" },
+            { id: "tasks",    icon: "📝", label: "タスク" },
+            { id: "schedule", icon: "📅", label: "予定" },
+          ] as const).map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`py-3 flex flex-col items-center gap-0.5 transition-colors ${activeTab === tab.id ? "bg-yellow-100" : ""}`}
+            >
+              <span className="text-2xl leading-none">{tab.icon}</span>
+              <span className={`text-[10px] font-black mt-0.5 ${activeTab === tab.id ? "text-slate-900" : "text-slate-400"}`}>{tab.label}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
+
+      {/* ════════════ 🖥️ デスクトップ (md以上) ════════════ */}
+      <div className="hidden md:flex flex-row min-h-screen">
+
+        {/* Sidebar */}
+        <aside className="w-64 lg:w-72 border-r-2 border-slate-800 bg-white p-6 flex flex-col shrink-0 sticky top-0 h-screen overflow-y-auto z-40">
         <div className="flex items-center gap-2 mb-8 mt-2">
           <div className="w-10 h-10 bg-yellow-400 rounded-full border-2 border-slate-800 flex items-center justify-center text-xl shadow-[2px_2px_0px_rgba(30,41,59,1)]">⭐</div>
           <h1 className="text-2xl font-black tracking-tight leading-none">Plan<br/>Dear</h1>
@@ -925,6 +1101,7 @@ export default function Home() {
         </div>
       </main>
 
+      </div>{/* end desktop */}
     </div>
   );
 }
